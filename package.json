@@ -1,0 +1,19 @@
+{
+  "name": "agent284",
+  "version": "1.0.0",
+  "main": "chat.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node chat.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@google/genai": "^0.10.0",
+    "@google/generative-ai": "^0.24.0",
+    "dotenv": "^16.5.0",
+    "mongoose": "^8.14.0"
+  }
+}
