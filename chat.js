@@ -10,7 +10,7 @@ config();
 async function connectToMongoDB() {
   try {
     // Check if MONGODB_URI is defined in .env
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/agent284';
+    const mongoUri = process.env.MONGO_URI;
     
     if (!mongoUri) {
       console.warn('MONGODB_URI not found in .env file. Running without MongoDB persistence.');
@@ -19,7 +19,6 @@ async function connectToMongoDB() {
     
     console.log(`Attempting to connect to MongoDB at: ${mongoUri}`);
     
-    // Use the same connection options that worked in the test script
     await mongoose.connect(mongoUri, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 10000,
@@ -66,7 +65,7 @@ async function startChat(useMongoDb = true) {
     console.log("Warning: Running without MongoDB persistence. Chat history won't be saved between sessions.");
   }
   
-  const askQuestion = () => {
+  const promptAI = () => {
     rl.question('You: ', async (input) => {
       if (input.toLowerCase() === 'exit') {
         console.log('Chat ended.');
@@ -93,21 +92,22 @@ async function startChat(useMongoDb = true) {
         console.log('\n');
         
         // Continue the conversation
-        askQuestion();
+        promptAI();
       } catch (error) {
         console.error('Error:', error);
-        askQuestion();
+        promptAI();
       }
     });
   };
 
-  askQuestion();
+  promptAI();
 }
 
 // Run the chat - pass false to skip MongoDB connection attempt
 startChat(true);
 
-export { startChat };
+
+
 
 
 

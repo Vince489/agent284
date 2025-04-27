@@ -25,15 +25,15 @@ class Agent {
       currentSession: 0
     };
     
-    // Initialize pricing
+    // Initialize pricing (Gemini 1.5 Flash)
     this.pricing = {
       input: {
-        small: 0.000001, // $0.000001 per token for up to 128,000 tokens
-        standard: 0.000002 // $0.000002 per token for over 128,000 tokens
+        small: 0.000075, // $0.075 per 1M tokens for up to 128k tokens
+        standard: 0.00015  // $0.15 per 1M tokens for over 128k tokens
       },
       output: {
-        small: 0.000001, // $0.000001 per token for up to 128,000 tokens
-        standard: 0.000002 // $0.000002 per token for over 128,000 tokens
+        small: 0.0003,    // $0.30 per 1M tokens for up to 128k tokens
+        standard: 0.0006   // $0.60 per 1M tokens for over 128k tokens
       },
       totalCost: 0
     };
@@ -41,7 +41,6 @@ class Agent {
 
   async getTokenCount(text) {
     try {
-      // Use the correct method for token counting in @google/genai
       const result = await this.genAI.models.countTokens({
         model: "gemini-1.5-flash",
         contents: [{ role: 'user', parts: [{ text }] }]
