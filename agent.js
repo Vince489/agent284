@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { config } from 'dotenv';
-import { HybridConversationMemory } from './memory.js';
+import { Memory } from './memory.js';
 import mongoose from 'mongoose';
 
 config();
@@ -23,9 +23,21 @@ class Agent {
 
     this.genAI = new GoogleGenAI({ apiKey });
     this.sessionId = sessionId || `session_${Date.now()}`;
-    this.memory = new HybridConversationMemory({
+
+    // Model configuration with defaults
+    this.modelConfig = {
+      model: options.model || "gemini-1.5-flash",
+      temperature: options.temperature !== undefined ? options.temperature : 0.7,
+      topP: options.topP !== undefined ? options.topP : 0.95,
+      topK: options.topK !== undefined ? options.topK : 40,
+      maxOutputTokens: options.maxOutputTokens || 8192,
+      systemInstruction: options.systemInstruction || "You are a pirate. Reply in pirate dialect.."
+    };
+
+    // Memory configuration
+    this.memory = new Memory({
       sessionId: this.sessionId,
-      maxMessageCount: 200,
+      maxMessageCount: options.maxMessageCount || 200,
       useMongoDb: this.useMongoDb
     });
 
@@ -33,22 +45,11 @@ class Agent {
     this.tokenStats = {
       totalInput: 0,
       totalOutput: 0,
-      totalHistory: 0, // Keep track of total history seen
       currentSession: 0
     };
 
-    // Initialize pricing (Gemini 1.5 Flash)
-    this.pricing = {
-      input: {
-        small: 0.000075, // $0.075 per 1M tokens for up to 128k tokens
-        standard: 0.00015  // $0.15 per 1M tokens for over 128k tokens
-      },
-      output: {
-        small: 0.0003,    // $0.30 per 1M tokens for up to 128k tokens
-        standard: 0.0006   // $0.60 per 1M tokens for over 128k tokens
-      },
-      totalCost: 0
-    };
+    // Initialize pricing based on model
+    this.pricing = this._getPricingForModel(this.modelConfig.model);
   }
 
   // Private method to connect to MongoDB
@@ -126,9 +127,15 @@ class Agent {
 
   async getTokenCount(text) {
     try {
+      // Ensure text is a string
+      const textToCount = typeof text === 'string' ? text : String(text);
+      
       const result = await this.genAI.models.countTokens({
         model: "gemini-1.5-flash",
-        contents: [{ role: 'user', parts: [{ text }] }]
+        contents: [{ 
+          role: 'user', 
+          parts: [{ text: textToCount }] 
+        }]
       });
       return result.totalTokens;
     } catch (error) {
@@ -136,7 +143,7 @@ class Agent {
       return null;
     }
   }
-  async analyzeStream(input, context = {}) {
+  async analyzeStream(input) {
     try {
       // Try to count tokens, but continue even if it fails
       const inputTokens = await this.getTokenCount(input);
@@ -159,106 +166,175 @@ class Agent {
     // Try to count tokens in memory context if available
     if (memoryContext && memoryContext.length > 0) {
       try {
-        relevantContextTokens = await this.getTokenCount(memoryContext);
+        // Format the context for token counting if it's an array of messages
+        let contextText = memoryContext;
+        if (Array.isArray(memoryContext)) {
+          contextText = memoryContext.map(msg => `${msg.role}: ${msg.text}`).join('\n');
+        }
+        
+        relevantContextTokens = await this.getTokenCount(contextText);
         if (relevantContextTokens) {
-          this.tokenStats.totalInput += relevantContextTokens; //  add to input
-          this.tokenStats.totalHistory = relevantContextTokens; // Track for total history
+          this.tokenStats.totalInput += relevantContextTokens;
+          this.tokenStats.totalHistory = relevantContextTokens;
           this.tokenStats.currentSession += relevantContextTokens;
           console.log(`Memory context: ${relevantContextTokens} tokens (included in input)`);
+        } else {
+          console.log(`Memory context: token count unavailable`);
         }
       } catch (error) {
-        // Continue even if token counting fails
-        console.log("Token counting skipped for memory context");
+        console.log("Token counting skipped for memory context:", error.message);
       }
     } else {
       console.log("No relevant conversation context retrieved");
     }
 
-    // Minimal system instruction
-    const systemInstruction = "You are a helpful AI assistant.";
-
-    try {
-      // Create chat options
-      const chatOptions = {
-        model: "gemini-1.5-flash",
-        config: {
-          temperature: 0.7,
-          maxOutputTokens: 8192
-        },
-        systemInstruction: systemInstruction
-      };
-
-      // Build the chat history for the Gemini API
-      const chatHistory = [];
-
-      // Add memory context if available
-      if (memoryContext && memoryContext.length > 0) {
-        console.log(`Including previous conversation context (${relevantContextTokens} tokens)`);
-        chatHistory.push({ role: 'user', parts: [{ text: `PREVIOUS CONVERSATION CONTEXT:\n${memoryContext}` }] });
-        chatHistory.push({ role: 'model', parts: [{ text: "Noted." }] });
-      } else {
-        console.log("No previous conversation context available");
+    // Create chat options using the model configuration
+    const chatOptions = {
+      model: this.modelConfig.model,
+      config: {
+        temperature: this.modelConfig.temperature,
+        topP: this.modelConfig.topP,
+        topK: this.modelConfig.topK,
+        maxOutputTokens: this.modelConfig.maxOutputTokens,
+        systemInstruction: this.modelConfig.systemInstruction // Move this inside config
       }
+    };
 
-      chatOptions.history = chatHistory;
+    // Build the chat history for the Gemini API
+    const chatHistory = [];
 
-      // Create a chat session
-      const chat = this.genAI.chats.create(chatOptions);
+    // Instead of adding context as a separate message, directly include previous messages
+    if (memoryContext && memoryContext.length > 0) {
+      console.log(`Including previous conversation context (${relevantContextTokens} tokens)`);
+      
+      // Get the actual message objects instead of a formatted string
+      const previousMessages = this.memory.getAllMessages();
+      
+      // Add each message to the chat history with proper roles
+      for (const msg of previousMessages) {
+        // Skip the current user message as it will be added separately
+        if (msg.role === 'user' && msg.text === input) continue;
+        
+        // Map memory roles to Gemini API roles
+        const role = msg.role === 'assistant' ? 'model' : 'user';
+        chatHistory.push({ 
+          role: role, 
+          parts: [{ text: msg.text }] 
+        });
+      }
+      
+      console.log(`Added ${chatHistory.length} previous messages to chat history`);
+    } else {
+      console.log("No previous conversation context available");
+    }
 
-      // Send the message and get a streaming response
-      const response = await chat.sendMessageStream({
-        message: input
-      });
+    chatOptions.history = chatHistory;
 
-      // Collect the full response to save to memory
-      let fullResponse = '';
-      const self = this;
+    // Create a chat session
+    const chat = this.genAI.chats.create(chatOptions);
 
-      const responseStream = {
-        [Symbol.asyncIterator]: async function* () {
-          for await (const chunk of response) {
-            if (chunk.text) {
-              fullResponse += chunk.text;
-              yield chunk;
-            }
+    // Send the message and get a streaming response
+    const response = await chat.sendMessageStream({
+      message: input
+    });
+
+    // Collect the full response to save to memory
+    let fullResponse = '';
+    const self = this;
+
+    const responseStream = {
+      [Symbol.asyncIterator]: async function* () {
+        for await (const chunk of response) {
+          if (chunk.text) {
+            fullResponse += chunk.text;
+            yield chunk;
           }
+        }
 
-          // Count tokens in the response
-          const responseTokens = await self.getTokenCount(fullResponse);
-          if (responseTokens) {
-            self.tokenStats.totalOutput += responseTokens;
-            self.tokenStats.currentSession += responseTokens;
-            console.log(`Assistant response: ${responseTokens} tokens`);
-          }
+        // Count tokens in the response
+        const responseTokens = await self.getTokenCount(fullResponse);
+        if (responseTokens) {
+          self.tokenStats.totalOutput += responseTokens;
+          self.tokenStats.currentSession += responseTokens;
+          console.log(`Assistant response: ${responseTokens} tokens`);
+        }
 
-          // Calculate costs
-          const inputTokensInMillions = self.tokenStats.totalInput / 1000000;
-          const outputTokensInMillions = self.tokenStats.totalOutput / 1000000;
+        // After collecting the full response, save it to memory
+        await self.memory.addMessage({ role: 'assistant', text: fullResponse }, input);
+        console.log(`Saved assistant response to memory (${fullResponse.length} chars)`);
 
+        // Calculate costs
+        const inputTokensInMillions = self.tokenStats.totalInput / 1000000;
+        const outputTokensInMillions = self.tokenStats.totalOutput / 1000000;
+
+        // Only calculate costs if we have valid token counts
+        if (self.tokenStats.totalInput > 0 && self.tokenStats.totalOutput > 0) {
           const inputCost = inputTokensInMillions *
             (self.tokenStats.totalInput <= 128000 ? self.pricing.input.small : self.pricing.input.standard);
           const outputCost = outputTokensInMillions *
             (self.tokenStats.totalOutput <= 128000 ? self.pricing.output.small : self.pricing.output.standard);
           const totalCost = inputCost + outputCost;
           self.pricing.totalCost = totalCost; // Store the calculated cost
-          console.log(`Calculated totalCost: $${totalCost.toFixed(10)}`); // Add this line
-
+          console.log(`Calculated totalCost: $${totalCost.toFixed(10)}`);
+        } else {
+          console.log(`Cost calculation skipped due to missing token counts`);
         }
-      };
+      }
+    };
 
-      return responseStream;
-    } catch (error) {
-      console.error("Error analyzing input (streaming):", error);
-      throw error;
-    }
+    return responseStream;
+  } catch (error) {
+    console.error("Error analyzing input (streaming):", error);
+    throw error;
   }
 
   // Method to get current token statistics
   getTokenStats() {
+    const formattedCost = this.pricing.totalCost.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 10,
+      maximumFractionDigits: 10
+    });
+    
     return {
       ...this.tokenStats,
       total: this.tokenStats.totalInput + this.tokenStats.totalOutput,
-      cost: this.pricing.totalCost
+      cost: this.pricing.totalCost,
+      formattedCost: formattedCost
+    };
+  }
+
+  // Helper method to get pricing based on model
+  _getPricingForModel(model) {
+    // Default to Gemini 1.5 Flash pricing
+    const pricingMap = {
+      "gemini-1.5-flash": {
+        input: {
+          small: 0.000075, // $0.075 per 1M tokens for up to 128k tokens
+          standard: 0.00015  // $0.15 per 1M tokens for over 128k tokens
+        },
+        output: {
+          small: 0.0003,    // $0.30 per 1M tokens for up to 128k tokens
+          standard: 0.0006   // $0.60 per 1M tokens for over 128k tokens
+        }
+      },
+      "gemini-1.5-pro": {
+        input: {
+          small: 0.00025,   // $0.25 per 1M tokens for up to 128k tokens
+          standard: 0.0005   // $0.50 per 1M tokens for over 128k tokens
+        },
+        output: {
+          small: 0.0025,    // $2.50 per 1M tokens for up to 128k tokens
+          standard: 0.005    // $5.00 per 1M tokens for over 128k tokens
+        }
+      }
+      // Add more models as needed
+    };
+
+    return {
+      ...pricingMap[model] || pricingMap["gemini-1.5-flash"],
+      totalCost: 0
     };
   }
 }
@@ -270,15 +346,11 @@ async function runAgentStream(userInput, sessionId) {
     const responseStream = await agent.analyzeStream(userInput);
     for await (const chunk of responseStream) {
       process.stdout.write(chunk.text || "");
-      // Remove this line to prevent duplicate message saving
-      // if(chunk.text){
-      //  await agent.memory.addMessage({role: 'agent', text: chunk.text});
-      // }
     }
     console.log();
     const stats = agent.getTokenStats();
     console.log("Final stats:", stats);
-    const formattedCost = stats.cost.toLocaleString('en-US', { 
+    const formattedCost = stats.cost.toLocaleString('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0, // Ensure at least 0 digits

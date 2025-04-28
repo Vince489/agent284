@@ -1,0 +1,28 @@
+{
+    "agents": {
+      "researcher": {
+        "description": "Agent specialized in conducting web research and summarizing findings.",
+        "skills": [
+          "web_search",
+          "summarization",
+          "markdown_generation"
+        ],
+        "tools": [
+          "SerperDevTool",
+          "TavilySearchTool"
+        ],
+        "async_support": true
+      },
+      "writer": {
+        "description": "Agent focused on drafting and polishing long-form content based on research.",
+        "skills": [
+          "content_writing",
+          "proofreading",
+          "markdown_formatting"
+        ],
+        "tools": [],
+        "async_support": false
+      }
+    }
+  }
+  

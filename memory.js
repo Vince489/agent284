@@ -14,13 +14,13 @@ import Conversation from './models/conversation.js';
 import { model as embeddingModel } from './embed.js';
 
 /**
- * HybridConversationMemory class for managing conversation history
+ * Memory class for managing conversation history
  * with intelligent pruning and context retrieval
  * and MongoDB persistence with batch processing
  */
-export class HybridConversationMemory {
+export class Memory {
     /**
-     * Create a new HybridConversationMemory instance
+     * Create a new Memory instance
      * @param {Object} options - Configuration options
      * @param {number} options.maxSizeBytes - Maximum memory size in bytes (default: 5MB)
      * @param {number} options.maxMessageCount - Maximum number of messages to store (default: 20)
@@ -408,7 +408,7 @@ export class HybridConversationMemory {
 
         // Add timestamp if not already present
         if (!message.timestamp) {
-            message.timestamp = new Date();
+            message.timestamp = Date.now();
         }
 
         const messageSize = this._estimateMessageSize(message);
@@ -423,18 +423,22 @@ export class HybridConversationMemory {
 
         if (this.debug) console.log(`Current memory size: ${this.messages.length} messages`);
 
-        // Queue message add operation for batch saving instead of immediate save
-        await this._queueOperation('add', { messageId: message.timestamp });
+        // Queue message add operation for batch saving
+        if (this.isMongoConnected) {
+            await this._queueOperation('add', { messageId: message.timestamp });
+            // Force save to ensure messages are persisted immediately
+            await this._processBatch();
+        }
     }
 
     /**
      * Get relevant context from conversation history
      * @param {string} currentQuery - The current query
      * @param {number} maxContextSize - Maximum context size in bytes
-     * @returns {Promise<string>} - Formatted context string
+     * @returns {Promise<Array>} - Array of relevant message objects
      */
     async getRelevantContext(currentQuery, maxContextSize = 1024 * 1024) {
-        if (this.messages.length === 0) return '';
+        if (this.messages.length === 0) return [];
 
         const scoredMessages = await Promise.all(
             this.messages.map(async (message) => ({
@@ -443,6 +447,7 @@ export class HybridConversationMemory {
             }))
         );
 
+        // Sort by relevance (most relevant first)
         const sortedMessages = scoredMessages
             .sort((a, b) => b.score - a.score)
             .map(item => item.message);
@@ -454,8 +459,8 @@ export class HybridConversationMemory {
         const contextMessages = [];
 
         for (let msg of sortedMessages) {
-            const msgText = `${msg.role || 'unknown'}: ${msg.text}`;
-            const msgSize = stringToBytes(msgText + '\n---\n');
+            const msgText = `${msg.role}: ${msg.text}`;
+            const msgSize = stringToBytes(msgText + '\n');
             
             if (contextSize + msgSize <= maxContextSize) {
                 contextMessages.push(msg);
@@ -465,7 +470,7 @@ export class HybridConversationMemory {
             }
         }
 
-        return contextMessages.map(msg => `${msg.role || 'unknown'}: ${msg.text}`).join('\n---\n');
+        return contextMessages;
     }
 
     /**
@@ -530,4 +535,4 @@ export class HybridConversationMemory {
     }
 }
 
-export default HybridConversationMemory;
+export default Memory;

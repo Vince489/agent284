@@ -1,0 +1,29 @@
+{
+    "workflows": {
+      "compare_items_workflow": {
+        "description": "Workflow to compare two items via research and generate a markdown report.",
+        "steps": [
+          {
+            "task": "serper_comparison_task",
+            "agent": "researcher"
+          }
+        ],
+        "output_format": "markdown"
+      },
+      "summarize_and_write_workflow": {
+        "description": "Workflow to research, summarize, and create a polished article.",
+        "steps": [
+          {
+            "task": "tavily_comparison_task",
+            "agent": "researcher"
+          },
+          {
+            "task": "write_summary_task",
+            "agent": "writer"
+          }
+        ],
+        "output_format": "markdown"
+      }
+    }
+  }
+  

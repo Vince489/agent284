@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { config } from 'dotenv';
-import { HybridConversationMemory } from './memory.js';
+import { Memory } from './memory.js';
 
 config();
 
@@ -12,7 +12,7 @@ class Agent {
     }
     this.genAI = new GoogleGenAI({ apiKey });
     this.sessionId = sessionId || `session_${Date.now()}`;
-    this.memory = new HybridConversationMemory({ 
+    this.memory = new Memory({ 
       sessionId: this.sessionId,
       maxMessageCount: 200
     });

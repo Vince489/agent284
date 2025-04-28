@@ -9,7 +9,7 @@ async function testMongoConnection() {
   console.log('======================');
   
   // Get the MongoDB URI from .env
-  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const mongoUri = process.env.MONGO_URI;
   
   if (!mongoUri) {
     console.error('Error: No MongoDB URI found in .env file');

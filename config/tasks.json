@@ -1,0 +1,29 @@
+{
+    "tasks": {
+      "serper_comparison_task": {
+        "description": "Conduct a thorough comparison between {item1} and {item2} using SerperDevTool to gather relevant information.",
+        "steps": [
+          "Search for {item1} independently with reference to {goal}.",
+          "Search for {item2} independently with reference to {goal}.",
+          "Search for comparisons between {item1} and {item2} with reference to {goal}.",
+          "Generate a markdown report titled 'Serper Search Report'."
+        ],
+        "expected_output": "An aggregated summary of findings from web searches, including key articles and resources.",
+        "async_execution": true,
+        "agent": "researcher"
+      },
+      "tavily_comparison_task": {
+        "description": "Scrape and summarize textual data from large content sources using TavilySearchTool.",
+        "steps": [
+          "Gather data for {item1} with reference to {goal}.",
+          "Gather data for {item2} with reference to {goal}.",
+          "Compare {item1} and {item2} with reference to {goal}.",
+          "Generate a markdown report titled 'Tavily Search Report'."
+        ],
+        "expected_output": "Summarized textual data comparing two items in relation to the goal.",
+        "async_execution": true,
+        "agent": "researcher"
+      }
+    }
+  }
+  
