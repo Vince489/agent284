@@ -1,69 +1,28 @@
 import { Agent } from './agent.js';
 import readline from 'readline';
 import { config } from 'dotenv';
-import mongoose from 'mongoose';
 
 // Load environment variables first
 config();
 
-// Connect to MongoDB using the URI from .env
-async function connectToMongoDB() {
-  try {
-    // Check if MONGODB_URI is defined in .env
-    const mongoUri = process.env.MONGO_URI;
-    
-    if (!mongoUri) {
-      console.warn('MONGODB_URI not found in .env file. Running without MongoDB persistence.');
-      return false;
-    }
-    
-    console.log(`Attempting to connect to MongoDB at: ${mongoUri}`);
-    
-    await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000
-    });
-    
-    // Verify connection was successful
-    if (mongoose.connection.readyState === 1) {
-      console.log('Connected to MongoDB successfully');
-      console.log(`Database name: ${mongoose.connection.db.databaseName}`);
-      return true;
-    } else {
-      console.warn(`Unexpected connection state: ${mongoose.connection.readyState}`);
-      return false;
-    }
-  } catch (error) {
-    console.error('MongoDB connection error:', error.message);
-    console.error('Error name:', error.name);
-    console.error('Error stack:', error.stack);
-    console.log('Continuing without MongoDB persistence. Make sure:');
-    console.log('1. MongoDB server is running');
-    console.log('2. Your connection string in .env is correct (MONGODB_URI=mongodb://localhost:27017/agent284)');
-    console.log('3. Network allows connection to MongoDB server');
-    return false;
-  }
-}
-
 async function startChat(useMongoDb = true) {
-  // Connect to MongoDB before starting chat if requested
-  const mongoConnected = useMongoDb ? await connectToMongoDB() : false;
-  
   const sessionId = `chat_${Date.now()}`;
   console.log(`Starting new chat session: ${sessionId}`);
   
-  const agent = new Agent(sessionId);
+  // Create agent with MongoDB option and wait for connection to complete
+  const agent = new Agent(sessionId, { useMongoDb });
+  
+  // Wait for MongoDB connection to complete before starting chat
+  if (useMongoDb) {
+    await agent.waitForMongoConnection();
+  }
+  
+  console.log("Chat started. Type 'exit' to end the conversation.");
   
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
-
-  console.log("Chat started. Type 'exit' to end the conversation.");
-  if (!mongoConnected && useMongoDb) {
-    console.log("Warning: Running without MongoDB persistence. Chat history won't be saved between sessions.");
-  }
   
   const promptAI = () => {
     rl.question('You: ', async (input) => {
@@ -71,10 +30,7 @@ async function startChat(useMongoDb = true) {
         console.log('Chat ended.');
         rl.close();
         // Close MongoDB connection when exiting
-        if (mongoose.connection.readyState === 1) {
-          await mongoose.connection.close();
-          console.log('MongoDB connection closed');
-        }
+        await agent.closeMongoConnection();
         return;
       }
       
@@ -103,8 +59,11 @@ async function startChat(useMongoDb = true) {
   promptAI();
 }
 
-// Run the chat - pass false to skip MongoDB connection attempt
+// Run the chat - pass true to use MongoDB
 startChat(true);
+
+
+
 
 
 

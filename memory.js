@@ -35,6 +35,7 @@ export class HybridConversationMemory {
         this.messages = [];
         this.embeddingModel = options.embeddingModel || embeddingModel; // Use imported model as default
         this.sessionId = options.sessionId || 'default-session';
+        this.useMongoDb = options.useMongoDb !== undefined ? options.useMongoDb : false;
 
         // Batch processing properties
         this.pendingOperations = [];
@@ -43,19 +44,22 @@ export class HybridConversationMemory {
         this.maxBatchSize = options.maxBatchSize || 10; // max operations per batch
         this.isSaving = false; // Lock to prevent concurrent saves
 
-        // Check MongoDB connection status
-        this.isMongoConnected = mongoose.connection.readyState === 1;
-        if (this.debug) {
-            console.log(`Memory constructor - MongoDB connection status: ${this.isMongoConnected ? 'Connected' : 'Not connected'}`);
-            console.log(`MongoDB readyState: ${mongoose.connection.readyState}`);
-        } else {
-            // Only log minimal connection info
-            console.log(`MongoDB ${this.isMongoConnected ? 'connected' : 'not connected'}`);
-        }
+        // Check MongoDB connection status if MongoDB is enabled
+        this.isMongoConnected = this.useMongoDb ? mongoose.connection.readyState === 1 : false;
+        
+        if (this.useMongoDb) {
+            if (this.debug) {
+                console.log(`Memory constructor - MongoDB connection status: ${this.isMongoConnected ? 'Connected' : 'Not connected'}`);
+                console.log(`MongoDB readyState: ${mongoose.connection.readyState}`);
+            } else {
+                // Only log minimal connection info
+                console.log(`MongoDB ${this.isMongoConnected ? 'connected' : 'not connected'}`);
+            }
 
-        // Load conversation history from MongoDB if connected
-        if (this.isMongoConnected) {
-            this._loadFromMongoDB();
+            // Load conversation history from MongoDB if connected
+            if (this.isMongoConnected) {
+                this._loadFromMongoDB();
+            }
         }
     }
 
@@ -480,10 +484,8 @@ export class HybridConversationMemory {
     _updateMongoConnectionStatus() {
         const newConnectionStatus = mongoose.connection.readyState === 1;
         
-        if (this.isMongoConnected !== newConnectionStatus) {
-            console.log(`MongoDB connection status changed: ${newConnectionStatus ? 'Connected' : 'Not connected'}`);
-            this.isMongoConnected = newConnectionStatus;
-        }
+        // Update connection status without logging the change
+        this.isMongoConnected = newConnectionStatus;
 
         return this.isMongoConnected;
     }
